@@ -24,7 +24,6 @@ from docutils.parsers.rst.directives import images, nonnegative_int, flag
 
 from sphinx.errors import SphinxError
 from sphinx.util import ensuredir, relative_uri
-from sphinx.util.compat import Directive
 
 try:
     import aafigure
@@ -36,7 +35,7 @@ DEFAULT_FORMATS = dict(html='svg', latex='pdf', text=None)
 
 
 def merge_dict(dst, src):
-    for (k, v) in src.items():
+    for (k, v) in list(src.items()):
         if k not in dst:
             dst[k] = v
     return dst
@@ -46,8 +45,8 @@ def get_basename(text, options, prefix='aafig'):
     options = options.copy()
     if 'format' in options:
         del options['format']
-    hashkey = text.encode('utf-8') + str(options)
-    id = sha(hashkey).hexdigest()
+    hashkey = text + str(options)
+    id = sha(hashkey.encode('utf-8')).hexdigest()
     return '%s-%s' % (prefix, id)
 
 
@@ -62,11 +61,12 @@ class AafigDirective(images.Image):
     has_content = True
     required_arguments = 0
     own_option_spec = dict(
-        line_width   = float,
-        background   = str,
-        foreground   = str,
-        fill         = str,
         aspect       = nonnegative_int,
+        background   = str,
+        fill         = str,
+        foreground   = str,
+        format       = str,
+        line_width   = float,
         textual      = flag,
         proportional = flag,
     )
@@ -75,9 +75,8 @@ class AafigDirective(images.Image):
 
     def run(self):
         aafig_options = dict()
-        image_attrs = dict()
-        own_options_keys = self.own_option_spec.keys() + ['scale']
-        for (k, v) in self.options.items():
+        own_options_keys = list(self.own_option_spec.keys()) + ['scale']
+        for (k, v) in list(self.options.items()):
             if k in own_options_keys:
                 # convert flags to booleans
                 if v is None:
@@ -92,7 +91,7 @@ class AafigDirective(images.Image):
         if isinstance(image_node, nodes.system_message):
             return [image_node]
         text = '\n'.join(self.content)
-	image_node.aafig = dict(options = aafig_options, text = text)
+        image_node.aafig = dict(options = aafig_options, text = text)
         return [image_node]
 
 
@@ -125,7 +124,7 @@ def render_aafig_images(app, doctree):
             continue
         try:
             fname, outfn, id, extra = render_aafigure(app, text, options)
-        except AafigError, exc:
+        except AafigError as exc:
             app.builder.warn('aafigure error: ' + str(exc))
             img.replace_self(nodes.literal_block(text, text))
             continue
@@ -133,9 +132,9 @@ def render_aafig_images(app, doctree):
         # FIXME: find some way to avoid this hack in aafigure
         if extra:
             (width, height) = [x.split('"')[1] for x in extra.split()]
-            if not img.has_key('width'):
+            if 'width' not in img:
                 img['width'] = width
-            if not img.has_key('height'):
+            if 'height' not in img:
                 img['height'] = height
 
 
@@ -172,7 +171,7 @@ def render_aafigure(app, text, options):
                 f = None
                 try:
                     try:
-                        f = file(metadata_fname, 'r')
+                        f = open(metadata_fname, 'r')
                         extra = f.read()
                     except:
                         raise AafigError()
@@ -187,14 +186,15 @@ def render_aafigure(app, text, options):
 
     try:
         (visitor, output) = aafigure.render(text, outfn, options)
-	output.close()
-    except aafigure.UnsupportedFormatError, e:
+        output.close()
+        del options['file_like']
+    except aafigure.UnsupportedFormatError as e:
         raise AafigError(str(e))
 
     extra = None
     if options['format'].lower() == 'svg':
         extra = visitor.get_size_attrs()
-        f = file(metadata_fname, 'w')
+        f = open(metadata_fname, 'w')
         f.write(extra)
         f.close()
 
